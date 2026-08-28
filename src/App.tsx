@@ -10,9 +10,9 @@ import {
   Check,
   Settings,
   Layers,
-  Wand2,
-  Crown,
 } from 'lucide-react';
+
+import { removeBackground } from '@imgly/background-removal';
 
 import bg1 from './assets/img/bg1.jfif';
 import bg2 from './assets/img/bg2.jpg';
@@ -132,6 +132,77 @@ const UploadZone: React.FC<{
   );
 };
 
+// Background Import Zone (compact, for the sidebar)
+const BackgroundImportZone: React.FC<{
+  onImport: (file: File) => void;
+  isDragging: boolean;
+  setIsDragging: (v: boolean) => void;
+  disabled: boolean;
+}> = ({ onImport, isDragging, setIsDragging, disabled }) => {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      setIsDragging(false);
+      if (disabled) return;
+      const file = e.dataTransfer.files[0];
+      if (file && file.type.startsWith('image/')) {
+        onImport(file);
+      }
+    },
+    [onImport, setIsDragging, disabled]
+  );
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) onImport(file);
+    e.target.value = '';
+  };
+
+  return (
+    <div
+      className={`
+        relative flex flex-col items-center justify-center
+        border-2 border-dashed rounded-xl cursor-pointer
+        transition-all duration-200 py-8 px-4 text-center
+        ${disabled ? 'opacity-50 cursor-not-allowed border-zinc-800 bg-zinc-900/30' : ''}
+        ${!disabled && isDragging ? 'border-violet-400 bg-violet-500/10 scale-[1.02]' : ''}
+        ${!disabled && !isDragging ? 'border-zinc-700 hover:border-zinc-500 bg-zinc-900/50' : ''}
+      `}
+      onDragOver={(e) => {
+        e.preventDefault();
+        if (!disabled) setIsDragging(true);
+      }}
+      onDragLeave={() => setIsDragging(false)}
+      onDrop={handleDrop}
+      onClick={() => !disabled && inputRef.current?.click()}
+    >
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        disabled={disabled}
+        onChange={handleFileSelect}
+      />
+      <div
+        className={`
+          w-14 h-14 mb-3 rounded-xl flex items-center justify-center
+          transition-all duration-200
+          ${isDragging ? 'bg-violet-500/20 scale-110' : 'bg-zinc-800'}
+        `}
+      >
+        <Upload className={`w-6 h-6 ${isDragging ? 'text-violet-400' : 'text-zinc-400'}`} />
+      </div>
+      <p className="text-sm font-medium text-white mb-1">
+        {isDragging ? 'Déposez l\'image ici' : 'Importer une image de fond'}
+      </p>
+      <p className="text-xs text-zinc-500">Glissez-déposez ou cliquez pour parcourir</p>
+    </div>
+  );
+};
+
 // Template Background
 const templates = [
   { id: 'studio', name: 'Studio White', gradient: 'linear-gradient(180deg, #ffffff 0%, #f5f5f5 100%)' },
@@ -170,6 +241,100 @@ const checkerboardPattern = `
   ) 50% / 20px 20px
 `;
 
+// --- Canvas export helpers ---
+
+// Splits a CSS value list on top-level commas only (ignores commas inside parentheses,
+// e.g. the ones inside hsl(...) color stops)
+function splitTopLevel(str: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let current = '';
+  for (const char of str) {
+    if (char === '(') depth++;
+    if (char === ')') depth--;
+    if (char === ',' && depth === 0) {
+      parts.push(current.trim());
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  if (current.trim()) parts.push(current.trim());
+  return parts;
+}
+
+function loadImageElement(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
+// Draws an image onto the canvas following object-fit: cover semantics
+function drawImageCover(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  canvasWidth: number,
+  canvasHeight: number
+) {
+  const imgRatio = img.width / img.height;
+  const canvasRatio = canvasWidth / canvasHeight;
+  let sx: number, sy: number, sWidth: number, sHeight: number;
+  if (imgRatio > canvasRatio) {
+    sHeight = img.height;
+    sWidth = sHeight * canvasRatio;
+    sx = (img.width - sWidth) / 2;
+    sy = 0;
+  } else {
+    sWidth = img.width;
+    sHeight = sWidth / canvasRatio;
+    sx = 0;
+    sy = (img.height - sHeight) / 2;
+  }
+  ctx.drawImage(img, sx, sy, sWidth, sHeight, 0, 0, canvasWidth, canvasHeight);
+}
+
+// Converts one of our CSS linear-gradient() strings into a CanvasGradient
+function buildCanvasGradient(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  cssGradient: string
+): CanvasGradient {
+  const inner = cssGradient.trim().replace(/^linear-gradient\(/, '').replace(/\)$/, '');
+  const parts = splitTopLevel(inner);
+  const angleMatch = parts[0].match(/(-?\d+(\.\d+)?)deg/);
+  const angleDeg = angleMatch ? parseFloat(angleMatch[1]) : 180;
+  const stops = angleMatch ? parts.slice(1) : parts;
+
+  const angleRad = ((angleDeg % 360) * Math.PI) / 180;
+  const length = Math.abs(width * Math.sin(angleRad)) + Math.abs(height * Math.cos(angleRad));
+  const halfX = (Math.sin(angleRad) * length) / 2;
+  const halfY = (-Math.cos(angleRad) * length) / 2;
+  const cx = width / 2;
+  const cy = height / 2;
+  const gradient = ctx.createLinearGradient(cx - halfX, cy - halfY, cx + halfX, cy + halfY);
+
+  stops.forEach((stop, i) => {
+    const lastSpace = stop.lastIndexOf(' ');
+    let color = stop;
+    let position = stops.length > 1 ? i / (stops.length - 1) : 0;
+    if (lastSpace !== -1) {
+      const maybePercent = stop.slice(lastSpace + 1).trim();
+      if (maybePercent.endsWith('%')) {
+        color = stop.slice(0, lastSpace).trim();
+        position = parseFloat(maybePercent) / 100;
+      }
+    }
+    gradient.addColorStop(Math.min(Math.max(position, 0), 1), color);
+  });
+
+  return gradient;
+}
+
 // Main App Component
 const App: React.FC = () => {
   // State
@@ -178,15 +343,20 @@ const App: React.FC = () => {
   const [backgroundRemoved, setBackgroundRemoved] = useState(false);
   const [isRemovingBackground, setIsRemovingBackground] = useState(false);
   const [selectedBackground, setSelectedBackground] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'templates' | 'ai'>('templates');
-  const [aiPrompt, setAiPrompt] = useState('');
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [aiBackgrounds, setAiBackgrounds] = useState<AIGeneratedBackground[]>([]);
+  const [activeTab, setActiveTab] = useState<'templates' | 'import'>('templates');
+  const [customBackgrounds, setCustomBackgrounds] = useState<AIGeneratedBackground[]>([]);
+  const [isBackgroundDragging, setIsBackgroundDragging] = useState(false);
   const [productSize, setProductSize] = useState(100);
   const [verticalPosition, setVerticalPosition] = useState(50);
   const [horizontalPosition, setHorizontalPosition] = useState(50);
   const [isDragging, setIsDragging] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [imageDimensions, setImageDimensions] = useState<{ width: number; height: number } | null>(null);
+  const [frameSize, setFrameSize] = useState<{ width: number; height: number } | null>(null);
+  const [isDraggingProduct, setIsDraggingProduct] = useState(false);
+  const previewAreaRef = useRef<HTMLDivElement>(null);
+  const frameRef = useRef<HTMLDivElement>(null);
+  const dragStartRef = useRef<{ x: number; y: number; hPos: number; vPos: number } | null>(null);
 
   // Toast helper
   const addToast = useCallback((message: string, type: Toast['type'] = 'success') => {
@@ -198,21 +368,140 @@ const App: React.FC = () => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  // Upload handler
+  // Upload handler — now automatically removes the background right after import
   const handleUpload = useCallback(
     (file: File) => {
       const reader = new FileReader();
       reader.onload = (e) => {
-        setImage(e.target?.result as string);
+        const dataUrl = e.target?.result as string;
+        setImage(dataUrl);
         setImageName(file.name);
         setBackgroundRemoved(false);
         setSelectedBackground(null);
         addToast('Image uploaded successfully!', 'success');
+
+        // Read the image's real dimensions so the preview frame can match its ratio
+        const probe = new Image();
+        probe.onload = () => {
+          setImageDimensions({ width: probe.naturalWidth, height: probe.naturalHeight });
+        };
+        probe.src = dataUrl;
+
+        // Auto-trigger real, in-browser background removal right after import
+        setIsRemovingBackground(true);
+        removeBackground(file)
+          .then((blob) => {
+            const transparentUrl = URL.createObjectURL(blob);
+            setImage((prev) => {
+              if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+              return transparentUrl;
+            });
+            setBackgroundRemoved(true);
+            addToast('Background removed successfully!', 'success');
+          })
+          .catch((err) => {
+            console.error('Background removal failed:', err);
+            addToast("Couldn't remove the background. Please try again.", 'error');
+          })
+          .finally(() => {
+            setIsRemovingBackground(false);
+          });
       };
       reader.readAsDataURL(file);
     },
     [addToast]
   );
+
+  // Fit the preview frame to the available space while keeping the image's own aspect ratio
+  const computeFrameSize = useCallback(() => {
+    if (!imageDimensions || !previewAreaRef.current) return;
+    const container = previewAreaRef.current.getBoundingClientRect();
+    const padding = 16;
+    const maxWidth = Math.max(container.width - padding * 2, 1);
+    const maxHeight = Math.max(container.height - padding * 2, 1);
+    const imageRatio = imageDimensions.width / imageDimensions.height;
+    const containerRatio = maxWidth / maxHeight;
+
+    let width: number;
+    let height: number;
+
+    if (imageRatio > containerRatio) {
+      width = maxWidth;
+      height = maxWidth / imageRatio;
+    } else {
+      height = maxHeight;
+      width = maxHeight * imageRatio;
+    }
+
+    setFrameSize({ width, height });
+  }, [imageDimensions]);
+
+  useEffect(() => {
+    computeFrameSize();
+    window.addEventListener('resize', computeFrameSize);
+    return () => window.removeEventListener('resize', computeFrameSize);
+  }, [computeFrameSize]);
+
+  // Ctrl/Cmd + scroll (or trackpad pinch, which browsers report the same way) over the
+  // preview zooms the product instead of zooming the whole page. Needs a native listener
+  // with { passive: false } — React's onWheel is passive by default, so preventDefault()
+  // there would be silently ignored.
+  useEffect(() => {
+    const el = frameRef.current;
+    if (!el || !image || !backgroundRemoved) return;
+
+    const handleWheelZoom = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      setProductSize((prev) => {
+        const next = prev - e.deltaY * 0.5;
+        return Math.min(150, Math.max(50, Math.round(next)));
+      });
+    };
+
+    el.addEventListener('wheel', handleWheelZoom, { passive: false });
+    return () => el.removeEventListener('wheel', handleWheelZoom);
+  }, [image, backgroundRemoved]);
+
+  // Drag-to-position: grab the product, move it, release to drop it in place
+  const handleProductPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLImageElement>) => {
+      if (!image || !backgroundRemoved) return;
+      e.preventDefault();
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      dragStartRef.current = {
+        x: e.clientX,
+        y: e.clientY,
+        hPos: horizontalPosition,
+        vPos: verticalPosition,
+      };
+      setIsDraggingProduct(true);
+    },
+    [image, backgroundRemoved, horizontalPosition, verticalPosition]
+  );
+
+  const handleProductPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLImageElement>) => {
+      if (!dragStartRef.current || !frameSize) return;
+      const dx = e.clientX - dragStartRef.current.x;
+      const dy = e.clientY - dragStartRef.current.y;
+      const dHorizontal = (dx / frameSize.width) * 100;
+      const dVertical = (dy / frameSize.height) * 100;
+      const newH = Math.min(100, Math.max(0, dragStartRef.current.hPos + dHorizontal));
+      const newV = Math.min(100, Math.max(0, dragStartRef.current.vPos + dVertical));
+      setHorizontalPosition(Math.round(newH));
+      setVerticalPosition(Math.round(newV));
+    },
+    [frameSize]
+  );
+
+  const handleProductPointerUp = useCallback((e: React.PointerEvent<HTMLImageElement>) => {
+    if (dragStartRef.current && (e.currentTarget as HTMLElement).hasPointerCapture?.(e.pointerId)) {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    }
+    dragStartRef.current = null;
+    setIsDraggingProduct(false);
+  }, []);
 
   // Paste handler (Gestion du Ctrl+V)
   useEffect(() => {
@@ -247,47 +536,109 @@ const App: React.FC = () => {
     };
   }, [handleUpload]);
 
-  // Remove background
-  const handleRemoveBackground = useCallback(() => {
-    setIsRemovingBackground(true);
-    setTimeout(() => {
-      setIsRemovingBackground(false);
-      setBackgroundRemoved(true);
-      addToast('Background removed successfully!', 'success');
-    }, 2000);
-  }, [addToast]);
+  // Import a custom background image from the user's computer
+  const handleImportBackground = useCallback(
+    (file: File) => {
+      if (!file.type.startsWith('image/')) {
+        addToast('Please choose an image file', 'error');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target?.result as string;
+        const bgValue = `url(${dataUrl}) center/cover no-repeat`;
+        setCustomBackgrounds((prev) => [{ id: `custom-${Date.now()}`, gradient: bgValue }, ...prev]);
+        setSelectedBackground(bgValue);
+        addToast('Background imported!', 'success');
+      };
+      reader.readAsDataURL(file);
+    },
+    [addToast]
+  );
 
-  // Generate AI backgrounds
-  const handleGenerateAI = useCallback(() => {
-    if (!aiPrompt.trim()) return;
+  // Download — composites the product + chosen background onto a canvas and saves a PNG
+  const [isExporting, setIsExporting] = useState(false);
 
-    setIsGenerating(true);
-    setTimeout(() => {
-      // Generate mock AI backgrounds based on prompt
-      const gradients = [
-        `linear-gradient(135deg, hsl(${Math.random() * 360}, 70%, 60%) 0%, hsl(${Math.random() * 360}, 70%, 40%) 100%)`,
-        `linear-gradient(180deg, hsl(${Math.random() * 360}, 50%, 70%) 0%, hsl(${Math.random() * 360}, 80%, 30%) 100%)`,
-        `linear-gradient(45deg, hsl(${Math.random() * 360}, 60%, 50%) 0%, hsl(${Math.random() * 360}, 70%, 50%) 100%)`,
-      ];
-      setAiBackgrounds(
-        gradients.map((g, i) => ({
-          id: `ai-${i}`,
-          gradient: g,
-        }))
+  const handleDownload = useCallback(async () => {
+    if (!image || !selectedBackground || !imageDimensions || !frameSize) return;
+
+    setIsExporting(true);
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = imageDimensions.width;
+      canvas.height = imageDimensions.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Canvas not supported');
+
+      // Background layer
+      if (selectedBackground.includes('url(')) {
+        const urlMatch = selectedBackground.match(/url\(([^)]+)\)/);
+        const bgUrl = urlMatch ? urlMatch[1].replace(/['"]/g, '') : null;
+        if (bgUrl) {
+          const bgImg = await loadImageElement(bgUrl);
+          drawImageCover(ctx, bgImg, canvas.width, canvas.height);
+        }
+      } else if (selectedBackground.includes('gradient')) {
+        ctx.fillStyle = buildCanvasGradient(ctx, canvas.width, canvas.height, selectedBackground);
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+
+      // Product layer — mirrors the on-screen translate + scale, in real image pixels
+      const productImg = await loadImageElement(image);
+      const scaleFactor = imageDimensions.width / frameSize.width;
+      const translateX = ((horizontalPosition - 50) / 100) * frameSize.width * scaleFactor;
+      const translateY = ((verticalPosition - 50) / 100) * frameSize.height * scaleFactor;
+
+      ctx.save();
+      ctx.translate(canvas.width / 2 + translateX, canvas.height / 2 + translateY);
+      ctx.scale(productSize / 100, productSize / 100);
+      ctx.drawImage(
+        productImg,
+        -imageDimensions.width / 2,
+        -imageDimensions.height / 2,
+        imageDimensions.width,
+        imageDimensions.height
       );
-      setIsGenerating(false);
-      addToast('Backgrounds generated!', 'info');
-    }, 3000);
-  }, [aiPrompt, addToast]);
+      ctx.restore();
 
-  // Download mock
-  const handleDownload = useCallback(() => {
-    addToast('Image exported successfully!', 'success');
-  }, [addToast]);
+      const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+      if (!blob) throw new Error('Export failed');
+
+      const downloadUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const safeName = (imageName || 'product').replace(/\.[^/.]+$/, '');
+      link.href = downloadUrl;
+      link.download = `${safeName}-dropshot.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(downloadUrl);
+
+      addToast('Image exported successfully!', 'success');
+    } catch (err) {
+      console.error('Export failed:', err);
+      addToast("Couldn't export the image. Please try again.", 'error');
+    } finally {
+      setIsExporting(false);
+    }
+  }, [
+    image,
+    selectedBackground,
+    imageDimensions,
+    frameSize,
+    horizontalPosition,
+    verticalPosition,
+    productSize,
+    imageName,
+    addToast,
+  ]);
 
   // Clear image
   const handleClearImage = useCallback(() => {
-    setImage(null);
+    setImage((prev) => {
+      if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+      return null;
+    });
     setImageName('');
     setBackgroundRemoved(false);
     setSelectedBackground(null);
@@ -295,6 +646,8 @@ const App: React.FC = () => {
     setProductSize(100);
     setVerticalPosition(50);
     setHorizontalPosition(50);
+    setImageDimensions(null);
+    setFrameSize(null);
     addToast('Image removed', 'info');
   }, [addToast]);
 
@@ -306,14 +659,7 @@ const App: React.FC = () => {
             <Camera className="w-5 h-5 text-white" />
           </div>
           <span className="text-xl font-bold tracking-tight">DropShot</span>
-          <span className="px-2 py-0.5 text-xs font-medium bg-violet-500/20 text-violet-400 rounded-full border border-violet-500/30">
-            Beta
-          </span>
         </div>
-        <button className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 rounded-lg font-medium text-sm transition-all duration-200 shadow-lg shadow-violet-500/20 hover:shadow-violet-500/30">
-          <Crown className="w-4 h-4" />
-          Upgrade to Pro
-        </button>
       </header>
 
       {/* Main Content */}
@@ -334,12 +680,12 @@ const App: React.FC = () => {
               Templates
             </button>
             <button
-              className={`flex-1 py-2 px-3 rounded-md text-sm font-medium whitespace-nowrap flex items-center justify-center gap-1.5 transition-all duration-200 ${activeTab === 'ai' ? 'bg-violet-500 text-white' : 'text-zinc-400 hover:text-white'
+              className={`flex-1 py-2 px-3 rounded-md text-sm font-medium whitespace-nowrap flex items-center justify-center gap-1.5 transition-all duration-200 ${activeTab === 'import' ? 'bg-violet-500 text-white' : 'text-zinc-400 hover:text-white'
                 }`}
-              onClick={() => setActiveTab('ai')}
+              onClick={() => setActiveTab('import')}
             >
-              <Wand2 className="w-3.5 h-3.5" />
-              Generate AI
+              <Upload className="w-3.5 h-3.5" />
+              Importer une image
             </button>
           </div>
         </div>
@@ -388,53 +734,23 @@ const App: React.FC = () => {
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="relative">
-                  <textarea
-                    value={aiPrompt}
-                    onChange={(e) => setAiPrompt(e.target.value)}
-                    placeholder="Describe the ambiance you want...&#10;&#10;e.g., 'Sunset beach vibes with warm orange tones'"
-                    className="w-full h-32 bg-zinc-900 border border-zinc-700 rounded-xl p-3 text-sm text-white placeholder-zinc-500 resize-none focus:outline-none focus:border-violet-500 transition-colors duration-200"
-                    disabled={!image || !backgroundRemoved}
-                  />
-                  <div className="absolute bottom-3 right-3 text-xs text-zinc-500">
-                    {aiPrompt.length}/500
-                  </div>
-                </div>
-                <button
-                  onClick={handleGenerateAI}
-                  disabled={!image || !backgroundRemoved || !aiPrompt.trim() || isGenerating}
-                  className={`
-                    w-full py-3 px-4 rounded-xl font-medium text-sm
-                    flex items-center justify-center gap-2
-                    transition-all duration-200
-                    ${!image || !backgroundRemoved || !aiPrompt.trim()
-                      ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
-                      : 'bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white shadow-lg shadow-violet-500/20'
-                    }
-                  `}
-                >
-                  {isGenerating ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      Generating...
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="w-4 h-4" />
-                      Generate
-                    </>
-                  )}
-                </button>
+                <BackgroundImportZone
+                  onImport={handleImportBackground}
+                  isDragging={isBackgroundDragging}
+                  setIsDragging={setIsBackgroundDragging}
+                  disabled={!image || !backgroundRemoved}
+                />
 
-                {/* AI Generated Results */}
-                {aiBackgrounds.length > 0 && (
+                {/* Imported backgrounds */}
+                {customBackgrounds.length > 0 && (
                   <div className="space-y-3 pt-4 border-t border-zinc-800">
-                    <span className="text-xs text-zinc-400 font-medium">Generated backgrounds</span>
+                    <span className="text-xs text-zinc-400 font-medium">Fonds importés</span>
                     <div className="grid grid-cols-3 gap-2">
-                      {aiBackgrounds.map((bg) => (
+                      {customBackgrounds.map((bg) => (
                         <button
                           key={bg.id}
-                          onClick={() => setSelectedBackground(bg.gradient)}
+                          onClick={() => image && backgroundRemoved && setSelectedBackground(bg.gradient)}
+                          disabled={!image || !backgroundRemoved}
                           className={`
                             aspect-square rounded-lg overflow-hidden
                             transition-all duration-200 hover:scale-105
@@ -456,9 +772,19 @@ const App: React.FC = () => {
 
         {/* Center - Preview Area */}
         <main className="flex-1 flex flex-col">
-          <div className="flex-1 p-6 flex items-center justify-center">
+          <div ref={previewAreaRef} className="flex-1 p-6 flex items-center justify-center">
             {image ? (
-              <div className="relative w-full h-full max-w-4xl">
+              <div
+                ref={frameRef}
+                className="relative"
+                style={{
+                  width: frameSize ? `${frameSize.width}px` : '100%',
+                  height: frameSize ? `${frameSize.height}px` : '100%',
+                  maxWidth: '100%',
+                  maxHeight: '100%',
+                  transition: 'width 0.2s ease, height 0.2s ease',
+                }}
+              >
                 {/* Preview Container */}
                 <div
                   className="absolute inset-0 rounded-2xl overflow-hidden"
@@ -475,22 +801,9 @@ const App: React.FC = () => {
                   <div className="absolute top-4 left-4 z-10">
                     <div className="flex items-center gap-2 px-3 py-1.5 bg-black/40 backdrop-blur-md rounded-full text-xs font-medium">
                       <ImageIcon className="w-3.5 h-3.5 text-violet-400" />
-                      Marketing Preview
+                      Preview
                     </div>
                   </div>
-
-                  {/* Remove Background Button */}
-                  {!backgroundRemoved && !isRemovingBackground && (
-                    <div className="absolute top-4 right-4 z-10">
-                      <button
-                        onClick={handleRemoveBackground}
-                        className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 rounded-lg text-sm font-medium transition-colors duration-200"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                        Remove Background
-                      </button>
-                    </div>
-                  )}
 
                   {/* Removing Background Overlay */}
                   {isRemovingBackground && (
@@ -501,13 +814,21 @@ const App: React.FC = () => {
                   )}
 
                   {/* Product Image */}
-                  <div className="absolute inset-0 flex items-center justify-center p-8">
+                  <div className="absolute inset-0 flex items-center justify-center p-2">
                     <img
                       src={image}
                       alt={imageName}
-                      className="max-w-full max-h-full object-contain transition-all duration-200"
+                      draggable={false}
+                      onPointerDown={handleProductPointerDown}
+                      onPointerMove={handleProductPointerMove}
+                      onPointerUp={handleProductPointerUp}
+                      onPointerCancel={handleProductPointerUp}
+                      className="max-w-full max-h-full object-contain select-none"
                       style={{
-                        transform: `scale(${productSize / 100}) translate(${(horizontalPosition - 50) * 2}px, ${(verticalPosition - 50) * 2}px)`,
+                        transform: `translate(${((horizontalPosition - 50) / 100) * (frameSize?.width ?? 0)}px, ${((verticalPosition - 50) / 100) * (frameSize?.height ?? 0)}px) scale(${productSize / 100})`,
+                        transition: isDraggingProduct ? 'none' : 'transform 0.2s ease',
+                        cursor: !image || !backgroundRemoved ? 'default' : isDraggingProduct ? 'grabbing' : 'grab',
+                        touchAction: 'none',
                       }}
                     />
                   </div>
@@ -647,7 +968,7 @@ const App: React.FC = () => {
             {image && !backgroundRemoved && (
               <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
                 <p className="text-xs text-amber-400">
-                  Remove the background to unlock templates and AI generation
+                  Removing the background...
                 </p>
               </div>
             )}
@@ -665,19 +986,28 @@ const App: React.FC = () => {
           <div className="p-4 border-t border-zinc-800">
             <button
               onClick={handleDownload}
-              disabled={!image || !selectedBackground}
+              disabled={!image || !selectedBackground || isExporting}
               className={`
                 w-full py-3 px-4 rounded-xl font-medium text-sm
                 flex items-center justify-center gap-2
                 transition-all duration-200
-                ${!image || !selectedBackground
+                ${!image || !selectedBackground || isExporting
                   ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
                   : 'bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white shadow-lg shadow-violet-500/20'
                 }
               `}
             >
-              <Download className="w-4 h-4" />
-              Download Image
+              {isExporting ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-zinc-500/30 border-t-zinc-300 rounded-full animate-spin" />
+                  Exporting...
+                </>
+              ) : (
+                <>
+                  <Download className="w-4 h-4" />
+                  Download Image
+                </>
+              )}
             </button>
           </div>
         </aside>
