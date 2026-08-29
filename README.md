@@ -5,5 +5,5 @@
 # github
 
 git add .
-git commit -m "modif"
+git commit -m "last commit"
 git push

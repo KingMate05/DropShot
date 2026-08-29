@@ -10,6 +10,11 @@ import {
   Check,
   Settings,
   Layers,
+  Type,
+  Plus,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
 } from 'lucide-react';
 
 import { removeBackground } from '@imgly/background-removal';
@@ -18,6 +23,8 @@ import bg1 from './assets/img/bg1.jfif';
 import bg2 from './assets/img/bg2.jpg';
 import bg3 from './assets/img/bg3.jpg';
 import bg4 from './assets/img/bg4.jpg';
+import bg5 from './assets/img/bg5.jpg';
+import bg6 from './assets/img/bg6.jpg';
 
 
 // Types
@@ -30,6 +37,51 @@ interface Toast {
 interface AIGeneratedBackground {
   id: string;
   gradient: string;
+}
+
+interface TextLayer {
+  id: string;
+  text: string;
+  x: number; // percentage position within the frame, 0-100
+  y: number; // percentage position within the frame, 0-100
+  fontSize: number; // in natural image pixels, so it maps 1:1 onto the exported canvas
+  color: string;
+  fontFamily: string;
+  fontWeight: 400 | 700;
+  align: 'left' | 'center' | 'right';
+}
+
+// A full snapshot of everything that's specific to one image/project,
+// so several can be edited independently via tabs.
+interface TabState {
+  image: string | null;
+  imageName: string;
+  backgroundRemoved: boolean;
+  selectedBackground: string | null;
+  productSize: number;
+  verticalPosition: number;
+  horizontalPosition: number;
+  imageDimensions: { width: number; height: number } | null;
+  textLayers: TextLayer[];
+}
+
+interface ImageTab {
+  id: string;
+  state: TabState;
+}
+
+function createEmptyTabState(): TabState {
+  return {
+    image: null,
+    imageName: '',
+    backgroundRemoved: false,
+    selectedBackground: null,
+    productSize: 100,
+    verticalPosition: 50,
+    horizontalPosition: 50,
+    imageDimensions: null,
+    textLayers: [],
+  };
 }
 
 // Toast Component
@@ -121,12 +173,12 @@ const UploadZone: React.FC<{
           <Upload className={`w-8 h-8 ${isDragging ? 'text-violet-400' : 'text-zinc-400'}`} />
         </div>
         <h3 className="text-xl font-semibold text-white mb-2">
-          {isDragging ? 'Drop your image here' : 'Drop your product image'}
+          {isDragging ? 'Déposez votre image ici' : 'Déposez l\'image de votre produit'}
         </h3>
         <p className="text-zinc-400 text-sm mb-4">
-          or click to browse from your computer
+          ou cliquez pour parcourir votre ordinateur
         </p>
-        <p className="text-zinc-500 text-xs">PNG, JPG, WEBP up to 10MB</p>
+        <p className="text-zinc-500 text-xs">PNG, JPG, WEBP jusqu'à 10 Mo</p>
       </div>
     </div>
   );
@@ -205,31 +257,41 @@ const BackgroundImportZone: React.FC<{
 
 // Template Background
 const templates = [
-  { id: 'studio', name: 'Studio White', gradient: 'linear-gradient(180deg, #ffffff 0%, #f5f5f5 100%)' },
-  { id: 'golden', name: 'Golden Hour', gradient: 'linear-gradient(135deg, #f6d365 0%, #fda085 100%)' },
+  { id: 'studio', name: 'Studio blanc', gradient: 'linear-gradient(180deg, #ffffff 0%, #f5f5f5 100%)' },
+  { id: 'golden', name: 'Heure dorée', gradient: 'linear-gradient(135deg, #f6d365 0%, #fda085 100%)' },
   {
-    id: 'neon-studio',
-    name: 'Neon Studio',
+    id: 'neon-studio-1',
+    name: 'Studio néon',
     gradient: `url(${bg1}) center/cover no-repeat`
   },
   {
-    id: 'beach',
-    name: 'Beach Vibes',
+    id: 'beach-1',
+    name: 'Ambiance plage',
     gradient: `url(${bg2}) center/cover no-repeat`
   },
-  { id: 'dark', name: 'Dark Luxe', gradient: 'linear-gradient(180deg, #1a1a2e 0%, #16213e 100%)' },
+  { id: 'dark', name: 'Luxe sombre', gradient: 'linear-gradient(180deg, #1a1a2e 0%, #16213e 100%)' },
   { id: 'nature', name: 'Nature', gradient: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)' },
-  { id: 'cafe', name: 'Lifestyle Cafe', gradient: 'linear-gradient(135deg, #d4a574 0%, #8b5a2b 100%)' },
-  { id: 'pastel', name: 'Pastel Dream', gradient: 'linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)' },
+  { id: 'cafe', name: 'Café lifestyle', gradient: 'linear-gradient(135deg, #d4a574 0%, #8b5a2b 100%)' },
+  { id: 'pastel', name: 'Rêve pastel', gradient: 'linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)' },
   {
-    id: 'neon-studio',
-    name: 'Neon Studio',
+    id: 'neon-studio-2',
+    name: 'Studio néon',
     gradient: `url(${bg3}) center/cover no-repeat`
   },
   {
-    id: 'beach',
-    name: 'Beach Vibes',
+    id: 'beach-2',
+    name: 'Ambiance plage',
     gradient: `url(${bg4}) center/cover no-repeat`
+  },
+  {
+    id: 'template-5',
+    name: 'Géométrie Tech',
+    gradient: `url(${bg5}) center/cover no-repeat`
+  },
+  {
+    id: 'template-6',
+    name: 'Botanique Élégant',
+    gradient: `url(${bg6}) center/cover no-repeat`
   },
 ];
 
@@ -343,6 +405,8 @@ const App: React.FC = () => {
   const [backgroundRemoved, setBackgroundRemoved] = useState(false);
   const [isRemovingBackground, setIsRemovingBackground] = useState(false);
   const [selectedBackground, setSelectedBackground] = useState<string | null>(null);
+  const [imageTabs, setImageTabs] = useState<ImageTab[]>([{ id: 'tab-1', state: createEmptyTabState() }]);
+  const [activeImageTabId, setActiveImageTabId] = useState('tab-1');
   const [activeTab, setActiveTab] = useState<'templates' | 'import'>('templates');
   const [customBackgrounds, setCustomBackgrounds] = useState<AIGeneratedBackground[]>([]);
   const [isBackgroundDragging, setIsBackgroundDragging] = useState(false);
@@ -354,9 +418,14 @@ const App: React.FC = () => {
   const [imageDimensions, setImageDimensions] = useState<{ width: number; height: number } | null>(null);
   const [frameSize, setFrameSize] = useState<{ width: number; height: number } | null>(null);
   const [isDraggingProduct, setIsDraggingProduct] = useState(false);
+  const [rightPanelTab, setRightPanelTab] = useState<'controls' | 'text'>('controls');
+  const [textLayers, setTextLayers] = useState<TextLayer[]>([]);
+  const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
+  const [draggingTextId, setDraggingTextId] = useState<string | null>(null);
   const previewAreaRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const dragStartRef = useRef<{ x: number; y: number; hPos: number; vPos: number } | null>(null);
+  const textDragRef = useRef<{ id: string; startClientX: number; startClientY: number; startX: number; startY: number } | null>(null);
 
   // Toast helper
   const addToast = useCallback((message: string, type: Toast['type'] = 'success') => {
@@ -368,7 +437,92 @@ const App: React.FC = () => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  // Upload handler — now automatically removes the background right after import
+  // --- Image tabs: work on several images at once, each with its own product,
+  // background, size/position and text layers ---
+
+  const captureCurrentTabState = useCallback(
+    (): TabState => ({
+      image,
+      imageName,
+      backgroundRemoved,
+      selectedBackground,
+      productSize,
+      verticalPosition,
+      horizontalPosition,
+      imageDimensions,
+      textLayers,
+    }),
+    [
+      image,
+      imageName,
+      backgroundRemoved,
+      selectedBackground,
+      productSize,
+      verticalPosition,
+      horizontalPosition,
+      imageDimensions,
+      textLayers,
+    ]
+  );
+
+  const loadTabState = useCallback((state: TabState) => {
+    setImage(state.image);
+    setImageName(state.imageName);
+    setBackgroundRemoved(state.backgroundRemoved);
+    setSelectedBackground(state.selectedBackground);
+    setProductSize(state.productSize);
+    setVerticalPosition(state.verticalPosition);
+    setHorizontalPosition(state.horizontalPosition);
+    setImageDimensions(state.imageDimensions);
+    setTextLayers(state.textLayers);
+    setSelectedTextId(null);
+    setDraggingTextId(null);
+    setIsDraggingProduct(false);
+    setIsRemovingBackground(false);
+    setFrameSize(null);
+  }, []);
+
+  const handleSwitchImageTab = useCallback(
+    (id: string) => {
+      if (id === activeImageTabId) return;
+      const snapshot = captureCurrentTabState();
+      const target = imageTabs.find((t) => t.id === id);
+      setImageTabs((prev) => prev.map((t) => (t.id === activeImageTabId ? { ...t, state: snapshot } : t)));
+      if (target) loadTabState(target.state);
+      setActiveImageTabId(id);
+    },
+    [activeImageTabId, imageTabs, captureCurrentTabState, loadTabState]
+  );
+
+  const handleAddImageTab = useCallback(() => {
+    const snapshot = captureCurrentTabState();
+    const newId = `tab-${Date.now()}`;
+    setImageTabs((prev) => [
+      ...prev.map((t) => (t.id === activeImageTabId ? { ...t, state: snapshot } : t)),
+      { id: newId, state: createEmptyTabState() },
+    ]);
+    loadTabState(createEmptyTabState());
+    setActiveImageTabId(newId);
+  }, [activeImageTabId, captureCurrentTabState, loadTabState]);
+
+  const handleCloseImageTab = useCallback(
+    (id: string, e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (imageTabs.length <= 1) return;
+      const closingIndex = imageTabs.findIndex((t) => t.id === id);
+      const next = imageTabs.filter((t) => t.id !== id);
+      if (id === activeImageTabId) {
+        const newActiveIndex = Math.min(Math.max(closingIndex - 1, 0), next.length - 1);
+        const newActive = next[newActiveIndex];
+        loadTabState(newActive.state);
+        setActiveImageTabId(newActive.id);
+      }
+      setImageTabs(next);
+    },
+    [imageTabs, activeImageTabId, loadTabState]
+  );
+
+  // Upload handler
   const handleUpload = useCallback(
     (file: File) => {
       const reader = new FileReader();
@@ -378,7 +532,7 @@ const App: React.FC = () => {
         setImageName(file.name);
         setBackgroundRemoved(false);
         setSelectedBackground(null);
-        addToast('Image uploaded successfully!', 'success');
+        addToast('Image importée avec succès !', 'success');
 
         // Read the image's real dimensions so the preview frame can match its ratio
         const probe = new Image();
@@ -386,31 +540,34 @@ const App: React.FC = () => {
           setImageDimensions({ width: probe.naturalWidth, height: probe.naturalHeight });
         };
         probe.src = dataUrl;
-
-        // Auto-trigger real, in-browser background removal right after import
-        setIsRemovingBackground(true);
-        removeBackground(file)
-          .then((blob) => {
-            const transparentUrl = URL.createObjectURL(blob);
-            setImage((prev) => {
-              if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
-              return transparentUrl;
-            });
-            setBackgroundRemoved(true);
-            addToast('Background removed successfully!', 'success');
-          })
-          .catch((err) => {
-            console.error('Background removal failed:', err);
-            addToast("Couldn't remove the background. Please try again.", 'error');
-          })
-          .finally(() => {
-            setIsRemovingBackground(false);
-          });
       };
       reader.readAsDataURL(file);
     },
     [addToast]
   );
+
+  // Remove background — real, in-browser processing, triggered manually
+  const handleRemoveBackground = useCallback(() => {
+    if (!image) return;
+    setIsRemovingBackground(true);
+    removeBackground(image)
+      .then((blob) => {
+        const transparentUrl = URL.createObjectURL(blob);
+        setImage((prev) => {
+          if (prev && prev.startsWith('blob:')) URL.revokeObjectURL(prev);
+          return transparentUrl;
+        });
+        setBackgroundRemoved(true);
+        addToast('Fond supprimé avec succès !', 'success');
+      })
+      .catch((err) => {
+        console.error('Background removal failed:', err);
+        addToast("Impossible de supprimer le fond. Réessayez.", 'error');
+      })
+      .finally(() => {
+        setIsRemovingBackground(false);
+      });
+  }, [image, addToast]);
 
   // Fit the preview frame to the available space while keeping the image's own aspect ratio
   const computeFrameSize = useCallback(() => {
@@ -463,6 +620,83 @@ const App: React.FC = () => {
     return () => el.removeEventListener('wheel', handleWheelZoom);
   }, [image, backgroundRemoved]);
 
+  // Text layers — add, edit, remove, and drag them around the frame
+  const selectedTextLayer = textLayers.find((l) => l.id === selectedTextId) || null;
+
+  const handleAddText = useCallback(() => {
+    if (!image) return;
+    const baseFontSize = imageDimensions ? Math.round(imageDimensions.height * 0.06) : 48;
+    const newLayer: TextLayer = {
+      id: `text-${Date.now()}`,
+      text: 'Votre texte',
+      x: 50,
+      y: 50,
+      fontSize: baseFontSize,
+      color: '#ffffff',
+      fontFamily: 'Arial, sans-serif',
+      fontWeight: 700,
+      align: 'center',
+    };
+    setTextLayers((prev) => [...prev, newLayer]);
+    setSelectedTextId(newLayer.id);
+    setRightPanelTab('text');
+  }, [image, imageDimensions]);
+
+  const handleDeleteText = useCallback((id: string) => {
+    setTextLayers((prev) => prev.filter((l) => l.id !== id));
+    setSelectedTextId((prev) => (prev === id ? null : prev));
+  }, []);
+
+  const updateSelectedText = useCallback(
+    (patch: Partial<TextLayer>) => {
+      if (!selectedTextId) return;
+      setTextLayers((prev) => prev.map((l) => (l.id === selectedTextId ? { ...l, ...patch } : l)));
+    },
+    [selectedTextId]
+  );
+
+  const handleTextPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>, id: string) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const layer = textLayers.find((l) => l.id === id);
+      if (!layer) return;
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      textDragRef.current = {
+        id,
+        startClientX: e.clientX,
+        startClientY: e.clientY,
+        startX: layer.x,
+        startY: layer.y,
+      };
+      setDraggingTextId(id);
+      setSelectedTextId(id);
+      setRightPanelTab('text');
+    },
+    [textLayers]
+  );
+
+  const handleTextPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const drag = textDragRef.current;
+      if (!drag || !frameSize) return;
+      const dx = e.clientX - drag.startClientX;
+      const dy = e.clientY - drag.startClientY;
+      const newX = Math.min(100, Math.max(0, drag.startX + (dx / frameSize.width) * 100));
+      const newY = Math.min(100, Math.max(0, drag.startY + (dy / frameSize.height) * 100));
+      setTextLayers((prev) => prev.map((l) => (l.id === drag.id ? { ...l, x: newX, y: newY } : l)));
+    },
+    [frameSize]
+  );
+
+  const handleTextPointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (textDragRef.current && (e.currentTarget as HTMLElement).hasPointerCapture?.(e.pointerId)) {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    }
+    textDragRef.current = null;
+    setDraggingTextId(null);
+  }, []);
+
   // Drag-to-position: grab the product, move it, release to drop it in place
   const handleProductPointerDown = useCallback(
     (e: React.PointerEvent<HTMLImageElement>) => {
@@ -503,44 +737,11 @@ const App: React.FC = () => {
     setIsDraggingProduct(false);
   }, []);
 
-  // Paste handler (Gestion du Ctrl+V)
-  useEffect(() => {
-    const handlePaste = (e: ClipboardEvent) => {
-      // On récupère les éléments du presse-papiers
-      const items = e.clipboardData?.items;
-      if (!items) return;
-
-      for (let i = 0; i < items.length; i++) {
-        // On cherche si un des éléments est une image
-        if (items[i].type.indexOf('image') !== -1) {
-          const file = items[i].getAsFile();
-          if (file) {
-            // On génère un nom par défaut si l'image collée n'en a pas
-            const pastedFile = new File([file], file.name || `pasted-image-${Date.now()}.png`, {
-              type: file.type,
-            });
-
-            handleUpload(pastedFile);
-            break; // On a trouvé l'image, on arrête la boucle
-          }
-        }
-      }
-    };
-
-    // On écoute l'événement sur toute la page
-    window.addEventListener('paste', handlePaste);
-
-    // Nettoyage de l'écouteur quand le composant se démonte
-    return () => {
-      window.removeEventListener('paste', handlePaste);
-    };
-  }, [handleUpload]);
-
-  // Import a custom background image from the user's computer
+  // Import a custom background image from the user's computer (or clipboard)
   const handleImportBackground = useCallback(
     (file: File) => {
       if (!file.type.startsWith('image/')) {
-        addToast('Please choose an image file', 'error');
+        addToast('Veuillez choisir un fichier image', 'error');
         return;
       }
       const reader = new FileReader();
@@ -549,12 +750,43 @@ const App: React.FC = () => {
         const bgValue = `url(${dataUrl}) center/cover no-repeat`;
         setCustomBackgrounds((prev) => [{ id: `custom-${Date.now()}`, gradient: bgValue }, ...prev]);
         setSelectedBackground(bgValue);
-        addToast('Background imported!', 'success');
+        addToast('Fond importé !', 'success');
       };
       reader.readAsDataURL(file);
     },
     [addToast]
   );
+
+  // Paste handler (Ctrl+V) — first pasted image becomes the product, next ones become the background
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image') !== -1) {
+          const file = items[i].getAsFile();
+          if (file) {
+            const pastedFile = new File([file], file.name || `pasted-image-${Date.now()}.png`, {
+              type: file.type,
+            });
+
+            if (image) {
+              handleImportBackground(pastedFile);
+            } else {
+              handleUpload(pastedFile);
+            }
+            break;
+          }
+        }
+      }
+    };
+
+    window.addEventListener('paste', handlePaste);
+    return () => {
+      window.removeEventListener('paste', handlePaste);
+    };
+  }, [handleUpload, handleImportBackground, image]);
 
   // Download — composites the product + chosen background onto a canvas and saves a PNG
   const [isExporting, setIsExporting] = useState(false);
@@ -601,6 +833,25 @@ const App: React.FC = () => {
       );
       ctx.restore();
 
+      // Text layers — fontSize is already in natural image pixels, so no scale correction needed
+      textLayers.forEach((layer) => {
+        if (!layer.text.trim()) return;
+        ctx.save();
+        ctx.font = `${layer.fontWeight === 700 ? 'bold ' : ''}${layer.fontSize}px ${layer.fontFamily}`;
+        ctx.fillStyle = layer.color;
+        ctx.textAlign = layer.align;
+        ctx.textBaseline = 'middle';
+        const px = (layer.x / 100) * canvas.width;
+        const py = (layer.y / 100) * canvas.height;
+        const lines = layer.text.split('\n');
+        const lineHeight = layer.fontSize * 1.2;
+        const startY = py - (lineHeight * (lines.length - 1)) / 2;
+        lines.forEach((line, i) => {
+          ctx.fillText(line, px, startY + i * lineHeight);
+        });
+        ctx.restore();
+      });
+
       const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
       if (!blob) throw new Error('Export failed');
 
@@ -614,10 +865,10 @@ const App: React.FC = () => {
       document.body.removeChild(link);
       URL.revokeObjectURL(downloadUrl);
 
-      addToast('Image exported successfully!', 'success');
+      addToast('Image exportée avec succès !', 'success');
     } catch (err) {
       console.error('Export failed:', err);
-      addToast("Couldn't export the image. Please try again.", 'error');
+      addToast("Impossible d'exporter l'image. Réessayez.", 'error');
     } finally {
       setIsExporting(false);
     }
@@ -630,6 +881,7 @@ const App: React.FC = () => {
     verticalPosition,
     productSize,
     imageName,
+    textLayers,
     addToast,
   ]);
 
@@ -642,13 +894,16 @@ const App: React.FC = () => {
     setImageName('');
     setBackgroundRemoved(false);
     setSelectedBackground(null);
-    setAiBackgrounds([]);
+    setCustomBackgrounds([]);
     setProductSize(100);
     setVerticalPosition(50);
     setHorizontalPosition(50);
     setImageDimensions(null);
     setFrameSize(null);
-    addToast('Image removed', 'info');
+    setTextLayers([]);
+    setSelectedTextId(null);
+    setRightPanelTab('controls');
+    addToast('Image supprimée', 'info');
   }, [addToast]);
 
   return (
@@ -667,7 +922,7 @@ const App: React.FC = () => {
         {/* Left Sidebar - Backgrounds Panel */}
         <aside className="w-full sm:w-80 md:w-96 min-w-[320px] max-w-[400px] bg-[#1a1a1a] border-r border-zinc-800 flex flex-col shrink-0 h-full overflow-hidden">          <div className="p-4 border-b border-zinc-800 shrink-0">            <div className="flex items-center gap-2 mb-4">
           <Layers className="w-5 h-5 text-violet-400" />
-          <span className="font-semibold">Backgrounds</span>
+          <span className="font-semibold">Fonds</span>
         </div>
 
           {/* Onglets fixes */}
@@ -677,7 +932,7 @@ const App: React.FC = () => {
                 }`}
               onClick={() => setActiveTab('templates')}
             >
-              Templates
+              Modèles
             </button>
             <button
               className={`flex-1 py-2 px-3 rounded-md text-sm font-medium whitespace-nowrap flex items-center justify-center gap-1.5 transition-all duration-200 ${activeTab === 'import' ? 'bg-violet-500 text-white' : 'text-zinc-400 hover:text-white'
@@ -796,20 +1051,37 @@ const App: React.FC = () => {
                         : '#1a1a1a',
                     boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
                   }}
+                  onClick={() => setSelectedTextId(null)}
                 >
                   {/* Marketing Badge */}
                   <div className="absolute top-4 left-4 z-10">
                     <div className="flex items-center gap-2 px-3 py-1.5 bg-black/40 backdrop-blur-md rounded-full text-xs font-medium">
                       <ImageIcon className="w-3.5 h-3.5 text-violet-400" />
-                      Preview
+                      Aperçu
                     </div>
                   </div>
+
+                  {/* Remove Background Button */}
+                  {!backgroundRemoved && !isRemovingBackground && (
+                    <div className="absolute top-4 right-4 z-10">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRemoveBackground();
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 rounded-lg text-sm font-medium transition-colors duration-200"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Retirer le fond
+                      </button>
+                    </div>
+                  )}
 
                   {/* Removing Background Overlay */}
                   {isRemovingBackground && (
                     <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-20 flex flex-col items-center justify-center">
                       <div className="w-12 h-12 border-4 border-violet-500/30 border-t-violet-500 rounded-full animate-spin mb-4" />
-                      <span className="text-sm font-medium">Removing background...</span>
+                      <span className="text-sm font-medium">Suppression du fond...</span>
                     </div>
                   )}
 
@@ -832,6 +1104,49 @@ const App: React.FC = () => {
                       }}
                     />
                   </div>
+
+                  {/* Text Layers */}
+                  {textLayers.map((layer) => {
+                    const displayScale =
+                      frameSize && imageDimensions ? frameSize.width / imageDimensions.width : 1;
+                    const isSelected = selectedTextId === layer.id;
+                    return (
+                      <div
+                        key={layer.id}
+                        onPointerDown={(e) => handleTextPointerDown(e, layer.id)}
+                        onPointerMove={handleTextPointerMove}
+                        onPointerUp={handleTextPointerUp}
+                        onPointerCancel={handleTextPointerUp}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedTextId(layer.id);
+                          setRightPanelTab('text');
+                        }}
+                        className="absolute select-none whitespace-pre-wrap"
+                        style={{
+                          left: `${layer.x}%`,
+                          top: `${layer.y}%`,
+                          transform: 'translate(-50%, -50%)',
+                          maxWidth: '92%',
+                          fontFamily: layer.fontFamily,
+                          fontSize: `${layer.fontSize * displayScale}px`,
+                          fontWeight: layer.fontWeight,
+                          color: layer.color,
+                          textAlign: layer.align,
+                          lineHeight: 1.2,
+                          padding: '4px 6px',
+                          cursor: draggingTextId === layer.id ? 'grabbing' : 'grab',
+                          touchAction: 'none',
+                          outline: isSelected ? '1px dashed rgba(167, 139, 250, 0.9)' : 'none',
+                          outlineOffset: '2px',
+                          borderRadius: '4px',
+                          zIndex: 15,
+                        }}
+                      >
+                        {layer.text || ' '}
+                      </div>
+                    );
+                  })}
                 </div>
 
                 {/* Clear Image Button */}
@@ -853,41 +1168,97 @@ const App: React.FC = () => {
             )}
           </div>
 
-          {/* Bottom Bar */}
-          {image && (
-            <div className="h-14 bg-[#111] border-t border-zinc-800 flex items-center justify-between px-6">
-              <div className="flex items-center gap-2 text-sm text-zinc-400">
-                <ImageIcon className="w-4 h-4" />
-                <span className="text-xs font-medium truncate max-w-[200px]">{imageName}</span>
-              </div>
-            </div>
-          )}
+          {/* Image Tabs Bar */}
+          <div className="h-16 bg-[#111] border-t border-zinc-800 flex items-center gap-2 px-3 overflow-x-auto shrink-0">
+            {imageTabs.map((tab, index) => {
+              const isActive = tab.id === activeImageTabId;
+              const thumb = isActive ? image : tab.state.image;
+              const name = isActive ? imageName : tab.state.imageName;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => handleSwitchImageTab(tab.id)}
+                  className={`
+                    flex items-center gap-2 pl-2 pr-1.5 py-1.5 rounded-lg text-sm font-medium
+                    whitespace-nowrap shrink-0 border transition-colors duration-200
+                    ${isActive
+                      ? 'bg-violet-500/15 border-violet-500 text-white'
+                      : 'bg-zinc-900 border-transparent text-zinc-400 hover:text-white hover:border-zinc-700'
+                    }
+                  `}
+                >
+                  {thumb ? (
+                    <img src={thumb} alt="" className="w-7 h-7 rounded object-cover shrink-0" />
+                  ) : (
+                    <div className="w-7 h-7 rounded bg-zinc-800 flex items-center justify-center shrink-0">
+                      <ImageIcon className="w-3.5 h-3.5 text-zinc-600" />
+                    </div>
+                  )}
+                  <span className="max-w-[110px] truncate">{name || `Image ${index + 1}`}</span>
+                  {imageTabs.length > 1 && (
+                    <span
+                      onClick={(e) => handleCloseImageTab(tab.id, e)}
+                      className="ml-0.5 p-1 rounded hover:bg-zinc-700 text-zinc-500 hover:text-white transition-colors duration-200"
+                    >
+                      <X className="w-3 h-3" />
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+            <button
+              onClick={handleAddImageTab}
+              title="Nouvel onglet"
+              className="flex items-center justify-center w-9 h-9 rounded-lg bg-zinc-900 border border-dashed border-zinc-700 text-zinc-400 hover:text-violet-400 hover:border-violet-500 transition-colors duration-200 shrink-0"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+          </div>
         </main>
 
         {/* Right Sidebar - Controls */}
         <aside className="w-72 bg-[#1a1a1a] border-l border-zinc-800 flex flex-col shrink-0">
-          <div className="p-4 border-b border-zinc-800">
-            <div className="flex items-center gap-2">
+          <div className="p-4 border-b border-zinc-800 shrink-0">
+            <div className="flex items-center gap-2 mb-4">
               <Settings className="w-5 h-5 text-violet-400" />
-              <span className="font-semibold">Controls</span>
+              <span className="font-semibold">Édition</span>
+            </div>
+            <div className="flex flex-row items-center justify-between bg-zinc-900 rounded-lg p-1 w-full shrink-0">
+              <button
+                className={`flex-1 py-2 px-3 rounded-md text-sm font-medium whitespace-nowrap text-center transition-all duration-200 ${rightPanelTab === 'controls' ? 'bg-violet-500 text-white' : 'text-zinc-400 hover:text-white'
+                  }`}
+                onClick={() => setRightPanelTab('controls')}
+              >
+                Réglages
+              </button>
+              <button
+                className={`flex-1 py-2 px-3 rounded-md text-sm font-medium whitespace-nowrap flex items-center justify-center gap-1.5 transition-all duration-200 ${rightPanelTab === 'text' ? 'bg-violet-500 text-white' : 'text-zinc-400 hover:text-white'
+                  }`}
+                onClick={() => setRightPanelTab('text')}
+              >
+                <Type className="w-3.5 h-3.5" />
+                Texte
+              </button>
             </div>
           </div>
 
-          <div className="flex-1 p-4 space-y-6">
-            {/* Product Size Slider */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-sm text-zinc-400">Product Size</label>
-                <span className="text-sm font-medium text-white">{productSize}%</span>
-              </div>
-              <input
-                type="range"
-                min="50"
-                max="150"
-                value={productSize}
-                onChange={(e) => setProductSize(Number(e.target.value))}
-                disabled={!image}
-                className={`
+          <div className="flex-1 p-4 space-y-6 overflow-y-auto">
+            {rightPanelTab === 'controls' ? (
+              <>
+                {/* Product Size Slider */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm text-zinc-400">Taille du produit</label>
+                    <span className="text-sm font-medium text-white">{productSize}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="50"
+                    max="150"
+                    value={productSize}
+                    onChange={(e) => setProductSize(Number(e.target.value))}
+                    disabled={!image}
+                    className={`
                   w-full h-2 rounded-full appearance-none cursor-pointer
                   bg-zinc-700 [&::-webkit-slider-thumb]:appearance-none
                   [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4
@@ -897,27 +1268,27 @@ const App: React.FC = () => {
                   [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:duration-200
                   ${!image ? 'opacity-50 cursor-not-allowed' : ''}
                 `}
-              />
-              <div className="flex justify-between text-xs text-zinc-500">
-                <span>50%</span>
-                <span>150%</span>
-              </div>
-            </div>
+                  />
+                  <div className="flex justify-between text-xs text-zinc-500">
+                    <span>50%</span>
+                    <span>150%</span>
+                  </div>
+                </div>
 
-            {/* Vertical Position Slider */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-sm text-zinc-400">Vertical Position</label>
-                <span className="text-sm font-medium text-white">{verticalPosition}%</span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={verticalPosition}
-                onChange={(e) => setVerticalPosition(Number(e.target.value))}
-                disabled={!image}
-                className={`
+                {/* Vertical Position Slider */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm text-zinc-400">Position verticale</label>
+                    <span className="text-sm font-medium text-white">{verticalPosition}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={verticalPosition}
+                    onChange={(e) => setVerticalPosition(Number(e.target.value))}
+                    disabled={!image}
+                    className={`
                   w-full h-2 rounded-full appearance-none cursor-pointer
                   bg-zinc-700 [&::-webkit-slider-thumb]:appearance-none
                   [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4
@@ -927,27 +1298,27 @@ const App: React.FC = () => {
                   [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:duration-200
                   ${!image ? 'opacity-50 cursor-not-allowed' : ''}
                 `}
-              />
-              <div className="flex justify-between text-xs text-zinc-500">
-                <span>Top</span>
-                <span>Bottom</span>
-              </div>
-            </div>
+                  />
+                  <div className="flex justify-between text-xs text-zinc-500">
+                    <span>Haut</span>
+                    <span>Bas</span>
+                  </div>
+                </div>
 
-            {/* Horizontal Position Slider */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-sm text-zinc-400">Horizontal Position</label>
-                <span className="text-sm font-medium text-white">{horizontalPosition}%</span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={horizontalPosition}
-                onChange={(e) => setHorizontalPosition(Number(e.target.value))}
-                disabled={!image}
-                className={`
+                {/* Horizontal Position Slider */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm text-zinc-400">Position horizontale</label>
+                    <span className="text-sm font-medium text-white">{horizontalPosition}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={horizontalPosition}
+                    onChange={(e) => setHorizontalPosition(Number(e.target.value))}
+                    disabled={!image}
+                    className={`
                   w-full h-2 rounded-full appearance-none cursor-pointer
                   bg-zinc-700 [&::-webkit-slider-thumb]:appearance-none
                   [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4
@@ -957,28 +1328,205 @@ const App: React.FC = () => {
                   [&::-webkit-slider-thumb]:transition-all [&::-webkit-slider-thumb]:duration-200
                   ${!image ? 'opacity-50 cursor-not-allowed' : ''}
                 `}
-              />
-              <div className="flex justify-between text-xs text-zinc-500">
-                <span>Left</span>
-                <span>Right</span>
-              </div>
-            </div>
+                  />
+                  <div className="flex justify-between text-xs text-zinc-500">
+                    <span>Gauche</span>
+                    <span>Droite</span>
+                  </div>
+                </div>
 
-            {/* Status */}
-            {image && !backgroundRemoved && (
-              <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
-                <p className="text-xs text-amber-400">
-                  Removing the background...
-                </p>
-              </div>
-            )}
+                {/* Status */}
+                {image && !backgroundRemoved && (
+                  <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                    <p className="text-xs text-amber-400">
+                      Cliquez sur « Retirer le fond » pour continuer.
+                    </p>
+                  </div>
+                )}
 
-            {image && backgroundRemoved && (
-              <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
-                <p className="text-xs text-emerald-400">
-                  Background removed! Now choose a new background.
-                </p>
-              </div>
+                {image && backgroundRemoved && (
+                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
+                    <p className="text-xs text-emerald-400">
+                      Fond retiré ! Choisissez maintenant un nouveau fond.
+                    </p>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                {/* Add text button */}
+                <button
+                  onClick={handleAddText}
+                  disabled={!image}
+                  className={`
+                w-full py-2.5 px-4 rounded-xl font-medium text-sm
+                flex items-center justify-center gap-2
+                transition-all duration-200
+                ${!image
+                      ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+                      : 'bg-violet-600 hover:bg-violet-500 text-white'
+                    }
+              `}
+                >
+                  <Plus className="w-4 h-4" />
+                  Ajouter du texte
+                </button>
+
+                {/* Layer list */}
+                {textLayers.length > 0 && (
+                  <div className="space-y-2">
+                    {textLayers.map((layer) => (
+                      <div
+                        key={layer.id}
+                        onClick={() => setSelectedTextId(layer.id)}
+                        className={`
+                      flex items-center justify-between gap-2 px-3 py-2 rounded-lg cursor-pointer border
+                      transition-colors duration-200
+                      ${selectedTextId === layer.id
+                            ? 'border-violet-500 bg-violet-500/10'
+                            : 'border-zinc-800 bg-zinc-900/50 hover:border-zinc-700'
+                          }
+                    `}
+                      >
+                        <span className="text-sm text-white truncate">{layer.text || 'Texte vide'}</span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteText(layer.id);
+                          }}
+                          className="shrink-0 text-zinc-500 hover:text-red-400 transition-colors duration-200"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Style editor for the selected text layer */}
+                {selectedTextLayer ? (
+                  <div className="space-y-4 pt-4 border-t border-zinc-800">
+                    <div>
+                      <label className="text-xs text-zinc-400 mb-1.5 block">Contenu</label>
+                      <textarea
+                        value={selectedTextLayer.text}
+                        onChange={(e) => updateSelectedText({ text: e.target.value })}
+                        className="w-full h-20 bg-zinc-900 border border-zinc-700 rounded-lg p-2 text-sm text-white resize-none focus:outline-none focus:border-violet-500 transition-colors duration-200"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-xs text-zinc-400 mb-1.5 block">Police</label>
+                      <select
+                        value={selectedTextLayer.fontFamily}
+                        onChange={(e) => updateSelectedText({ fontFamily: e.target.value })}
+                        className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors duration-200"
+                      >
+                        <option value="Arial, sans-serif">Arial</option>
+                        <option value="'Helvetica Neue', Helvetica, sans-serif">Helvetica</option>
+                        <option value="Georgia, serif">Georgia</option>
+                        <option value="'Times New Roman', serif">Times New Roman</option>
+                        <option value="'Courier New', monospace">Courier New</option>
+                        <option value="'Trebuchet MS', sans-serif">Trebuchet MS</option>
+                        <option value="Impact, sans-serif">Impact</option>
+                        <option value="Verdana, sans-serif">Verdana</option>
+                      </select>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="text-xs text-zinc-400">Taille</label>
+                          <span className="text-xs font-medium text-white">{selectedTextLayer.fontSize}px</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="12"
+                          max={imageDimensions ? Math.round(imageDimensions.height * 0.3) : 200}
+                          value={selectedTextLayer.fontSize}
+                          onChange={(e) => updateSelectedText({ fontSize: Number(e.target.value) })}
+                          className="w-full h-2 rounded-full appearance-none cursor-pointer bg-zinc-700 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-500 [&::-webkit-slider-thumb]:cursor-pointer"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-zinc-400 mb-1.5 block">Couleur</label>
+                        <input
+                          type="color"
+                          value={selectedTextLayer.color}
+                          onChange={(e) => updateSelectedText({ color: e.target.value })}
+                          className="w-full h-9 bg-zinc-900 border border-zinc-700 rounded-lg cursor-pointer"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-xs text-zinc-400 mb-1.5 block">Style</label>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() =>
+                            updateSelectedText({ fontWeight: selectedTextLayer.fontWeight === 700 ? 400 : 700 })
+                          }
+                          className={`flex-1 py-2 rounded-lg border text-sm font-bold transition-colors duration-200 ${selectedTextLayer.fontWeight === 700
+                            ? 'border-violet-500 bg-violet-500/10 text-violet-400'
+                            : 'border-zinc-700 text-zinc-400 hover:border-zinc-600'
+                            }`}
+                        >
+                          B
+                        </button>
+                        <button
+                          onClick={() => updateSelectedText({ align: 'left' })}
+                          className={`flex-1 py-2 rounded-lg border flex items-center justify-center transition-colors duration-200 ${selectedTextLayer.align === 'left'
+                            ? 'border-violet-500 bg-violet-500/10 text-violet-400'
+                            : 'border-zinc-700 text-zinc-400 hover:border-zinc-600'
+                            }`}
+                        >
+                          <AlignLeft className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => updateSelectedText({ align: 'center' })}
+                          className={`flex-1 py-2 rounded-lg border flex items-center justify-center transition-colors duration-200 ${selectedTextLayer.align === 'center'
+                            ? 'border-violet-500 bg-violet-500/10 text-violet-400'
+                            : 'border-zinc-700 text-zinc-400 hover:border-zinc-600'
+                            }`}
+                        >
+                          <AlignCenter className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => updateSelectedText({ align: 'right' })}
+                          className={`flex-1 py-2 rounded-lg border flex items-center justify-center transition-colors duration-200 ${selectedTextLayer.align === 'right'
+                            ? 'border-violet-500 bg-violet-500/10 text-violet-400'
+                            : 'border-zinc-700 text-zinc-400 hover:border-zinc-600'
+                            }`}
+                        >
+                          <AlignRight className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => handleDeleteText(selectedTextLayer.id)}
+                      className="w-full py-2 rounded-lg border border-red-500/30 text-red-400 text-sm hover:bg-red-500/10 transition-colors duration-200 flex items-center justify-center gap-2"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Supprimer ce texte
+                    </button>
+                  </div>
+                ) : (
+                  !image ? (
+                    <p className="text-xs text-zinc-500 text-center pt-2">
+                      Importe une image pour pouvoir ajouter du texte.
+                    </p>
+                  ) : textLayers.length === 0 ? (
+                    <p className="text-xs text-zinc-500 text-center pt-2">
+                      Ajoute du texte pour personnaliser ton visuel. Tu pourras ensuite le glisser directement sur l'image.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-zinc-500 text-center pt-2">
+                      Sélectionne un texte dans la liste ou sur l'image pour le modifier.
+                    </p>
+                  )
+                )}
+              </>
             )}
           </div>
 
@@ -1000,12 +1548,12 @@ const App: React.FC = () => {
               {isExporting ? (
                 <>
                   <div className="w-4 h-4 border-2 border-zinc-500/30 border-t-zinc-300 rounded-full animate-spin" />
-                  Exporting...
+                  Export en cours...
                 </>
               ) : (
                 <>
                   <Download className="w-4 h-4" />
-                  Download Image
+                  Télécharger l'image
                 </>
               )}
             </button>
